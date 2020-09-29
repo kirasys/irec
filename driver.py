@@ -2,22 +2,32 @@ import sys
 import angr
 import logging
 import datetime
+import argparse
 import boltons.timeutils
 
 import winproject	
-				
+		
+def setup_logging(args):
+	level = getattr(logging, args.loglvl)
+	logging.getLogger('angr').setLevel(level)
+
 if __name__ == '__main__':
 	start_time = datetime.datetime.utcnow()
-	logging.getLogger('angr').setLevel('FATAL')
+	parser = argparse.ArgumentParser(description='Automatic Driver Analysis', usage='driver.py [-d] [driverPath] [-L] [logLevel] [-s]')
+	parser.add_argument('-d', '--driver', dest='driver', help='driverPath')
+	parser.add_argument('-L', '--log', default='FATAL', dest='loglvl', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR', 'FATAL'), help='set the logging level')
+	parser.add_argument('-s', '--skip', dest='skip', action='store_true', help='skip the functions that do not need to be analyzed')
+	args = parser.parse_args()
+	setup_logging(args)
 
 	if len(sys.argv) <= 1:
-		print("[!] Usage: %s driverPath" % sys.argv[0])
+		print("usage: %s" % parser.usage)
 		sys.exit()
 
-	driver = winproject.WDMDriverAnalysis(sys.argv[1], allowed_call_mode=True)
+	driver = winproject.WDMDriverAnalysis(args.driver, allowed_call_mode=args.skip)
 
 	if not driver.isWDM():
-		print("[!] '%s' is not a WDM driver." % sys.argv[1])
+		print("[!] '%s' is not a WDM driver." % args.driver)
 		sys.exit()
 	
 	device_name = driver.find_device_name()
