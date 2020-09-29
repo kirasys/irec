@@ -187,31 +187,6 @@ class WDMDriverAnalysis(angr.Project):
 
 		state.inspect.b('call', action=self.allow_function_by_arguments)
 
-	def set_ioctl_constraints(self, state):
-		"""
-		Don’t use this function manually - Breakpoint event handler used in recovery_ioctl_interface.
-		"""
-
-		for constraint in state.solver.constraints:
-			str_constraint = ast_repr(constraint)
-
-			if 'InputBufferLength' in str_constraint or 'OutputBufferLength' in str_constraint:
-				self.ioctl_constraints.append(str_constraint)
-
-	def catch_systembuffer_read(self, state):
-		address = state.solver.eval(state.inspect.mem_read_address)
-
-		"""
-		# Handle uninintilized variables of data section.
-		section = self.project.loader.main_object.find_section_containing(address)
-		if section and '.data' in section.name and address not in self.datas:
-			self.datas.append(address)
-			#setattr(state.mem[address], 'uint64_t', state.solver.BVS('x', 64))
-		"""
-		
-		return 'SystemBuffer' in str(state.inspect.mem_read_address)
-
-
 	def recovery_ioctl_interface(self):
 		"""
 		Returns IOCTL interface of the given driver.
@@ -244,18 +219,46 @@ class WDMDriverAnalysis(angr.Project):
 
 		ioctl_interface = []
 		switch_states = state_finder.get_states()
-		for ioctl_code, state in switch_states.items():
-			state.inspect.b('mem_read',
-				condition=self.catch_systembuffer_read,
-				action=self.set_ioctl_constraints)
-			state.inspect.b('mem_write',
-				condition=lambda st: 'SystemBuffer' in str(st.inspect.mem_write_address),
-				action=self.set_ioctl_constraints)
+		for ioctl_code, switchstate in switch_states.items():
+			tmpstate = switchstate.copy()
+			tmpstate.solver.add(irp.fields['AssociatedIrp.SystemBuffer'] == 0)
+			tmpstate.solver.add(io_stack_location.fields['InputBufferLength'] == 0xffffffff)
+			tmpstate.solver.add(io_stack_location.fields['OutputBufferLength'] == 0xffffffff)
+	
+			def get_else_state(st):
+				simgr = self.project.factory.simgr(st)
 
-			simgr = self.project.factory.simgr(state)
-			simgr.run(until=lambda x: len(self.ioctl_constraints), n=15)
+				for i in range(10):
+					simgr.step()
 
-			ioctl_interface.append({'code': ioctl_code, 'constraints':self.ioctl_constraints})
-			self.ioctl_constraints = []
+					for states in list(simgr.stashes.values()):
+						for state in states:
+							for constraint in state.history.jump_guards:
+								if 'Buffer' in str(constraint):
+									return state
 
+			elsestate = get_else_state(tmpstate)
+
+			def get_if_state(st, elsestate):
+				simgr = self.project.factory.simgr(st)
+
+				for i in range(10):
+					simgr.step()
+
+				for states in list(simgr.stashes.values()):
+					for state in states:
+						if elsestate.addr not in state.history.bbl_addrs:
+							return state
+
+			if elsestate:
+				ifstate = get_if_state(switchstate, elsestate)
+				constraints = []
+				for constraint in list(ifstate.history.jump_guards):
+					if 'Buffer' in str(constraint):
+						constraints.append(constraint)
+			else:
+				constraints = []
+
+			ioctl_interface.append({'code': hex(ioctl_code), 'constraints': constraints})
+		
 		return ioctl_interface
