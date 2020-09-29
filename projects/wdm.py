@@ -5,9 +5,9 @@ import claripy
 import archinfo
 from pprint import pprint as pp
 
-import structures
-import explore_technique
-from static_analysis import FunctionAnalysis
+from .symbolic import explore_technique
+from .symbolic import structures
+from .static.static_analysis import FunctionAnalysis
 
 DispatchDeviceControl_OFFSET = 0xe0
 DispatchCreate_OFFSET = 0x70
