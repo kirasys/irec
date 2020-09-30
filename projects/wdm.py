@@ -124,7 +124,7 @@ class WDMDriverAnalysis(angr.Project):
 
         simgr = self.project.factory.simgr(state)
 
-        # Break on DriverObject->MajorFuntion[DispatchDeviceControl]
+        # Set a breakpoint on DriverObject->MajorFuntion[MJ_DEVICE_CONTROL]
         state.inspect.b('mem_write',when=angr.BP_AFTER,
                         mem_write_address=arg_driverobject+DispatchDeviceControl_OFFSET,
                         action=self.set_major_functions)
