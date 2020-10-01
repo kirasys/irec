@@ -66,10 +66,7 @@ class WDMDriverAnalysis(angr.Project):
         self.driver_path = args[0]
         # Static binary analysis using radare2
         self.func_analyzer = FunctionAnalysis(self.driver_path)
-
         self.skip_call_mode = kwargs.pop('skip_call_mode', False)
-        if self.skip_call_mode:
-            kwargs['support_selfmodifying_code'] = True
 
         super(WDMDriverAnalysis, self).__init__(*args, **kwargs)
         self.factory = WDMDriverFactory(self)
@@ -78,9 +75,8 @@ class WDMDriverAnalysis(angr.Project):
         self.DispatchCreate = 0
         self.DispatchDeviceControl = 0
 
-        self.ioctl_constraints = []
-        self.datas = []
-    
+        self.mode = {}
+
     def isWDM(self):
         """
         Returns True if the given binary is WDM driver. 
@@ -121,7 +117,7 @@ class WDMDriverAnalysis(angr.Project):
 
         state = self.project.factory.call_state(self.project.entry, arg_driverobject, arg_registrypath)
         if self.skip_call_mode:
-            self.use_skip_call_mode(state, [arg_driverobject])
+            self.set_mode('skip_call', state, allowed_arguments=[arg_driverobject])
 
         simgr = self.project.factory.simgr(state)
 
@@ -144,55 +140,62 @@ class WDMDriverAnalysis(angr.Project):
                     break
 
         return self.DispatchDeviceControl
-    
-    def skip_function_by_arguments(self, state):
+
+    def set_mode(self, mode, state, off=False, allowed_arguments=[]):
         """
-        Don’t use this function manually - Breakpoint event handler used in use_skip_call_technique.
+        Set a mode to given state.
+
+        - mode
+        :force_skip_call:   Force any functon to return.
+        :skip_call:         Skip certain functions according to arguments it use.
         """
 
-        # Analyze prototype of the current function.
-        func_prototypes = self.func_analyzer.prototype(state.addr)
+        if mode == 'force_skip_call':
+            if not off:
+                def force_skip_call(state):
+                    state.mem[state.regs.rip].uint8_t = 0xc3
+                    state.regs.rax = state.solver.BVS('ret', 64)
 
-        skip = True
-        for arg_type in func_prototypes:
-            if '+' not in arg_type:     # register
-                argument = getattr(state.regs, arg_type)
-            else:                       # stack value
-                offset = int(arg_type.split('+')[-1], 16)
-                argument = state.mem[getattr(state.regs, arg_type.split('+')[0]) + offset].uint64_t.resolved
-                
-            if argument.symbolic:
-                argument = str(argument)
-
-                for arg in self.allowed_arguments:
-                    if isinstance(arg, str) and arg in argument:
-                        skip = False
+                self.mode[mode] = state.inspect.b('call', action=force_skip_call)
             else:
-                argument = state.solver.eval(argument)
+                state.inspect.remove_breakpoint('call', self.mode[mode])
 
-                if argument in self.allowed_arguments:
-                    skip = False
+        elif mode == 'skip_call':
+            if not off:
+                def skip_function_by_arguments(state):
+                    # Analyze prototype of the current function.
+                    func_prototypes = self.func_analyzer.prototype(state.addr)
 
-            if skip == False:
-                break
+                    skip = True
+                    for arg_type in func_prototypes:
+                        if '+' not in arg_type:     # register
+                            argument = getattr(state.regs, arg_type)
+                        else:                       # stack value
+                            offset = int(arg_type.split('+')[-1], 16)
+                            argument = state.mem[getattr(state.regs, arg_type.split('+')[0]) + offset].uint64_t.resolved
+                            
+                        if argument.symbolic:
+                            argument = str(argument)
 
-        if skip:
-            state.mem[state.regs.rip].uint8_t = 0xc3
-            state.regs.rax = state.solver.BVS('ret', 64)
+                            for arg in allowed_arguments:
+                                if isinstance(arg, str) and arg in argument:
+                                    skip = False
+                        else:
+                            argument = state.solver.eval(argument)
 
-    def use_skip_call_mode(self, state, arguments):
-        """
-        :state:         Target state to apply skip call mode
-        :arguments:     
-        """
+                            if argument in allowed_arguments:
+                                skip = False
 
-        self.allowed_arguments = arguments
+                        if skip == False:
+                            break
 
-        state.inspect.b('call', action=self.skip_function_by_arguments)
+                    if skip:
+                        state.mem[state.regs.rip].uint8_t = 0xc3
+                        state.regs.rax = state.solver.BVS('ret', 64)
 
-    def force_skip_call(self, state):
-        state.mem[state.regs.rip].uint8_t = 0xc3
-        state.regs.rax = state.solver.BVS('ret', 64)
+                self.mode[mode] = state.inspect.b('call', action=skip_function_by_arguments)
+            else:
+                state.inspect.remove_breakpoint('call', self.mode[mode])
 
     def recovery_ioctl_interface(self):
         """
@@ -209,7 +212,7 @@ class WDMDriverAnalysis(angr.Project):
         #setattr(state.mem[0x10C5B8], 'uint64_t', state.solver.BVS('x', 64))
 
         if self.skip_call_mode:
-            self.use_skip_call_mode(state, [arg_iostacklocation, 'IoControlCode', 'SystemBuffer', 'CurrentStackLocation'])
+            self.set_mode('skip_call', state, allowed_arguments=[arg_iostacklocation, 'IoControlCode', 'SystemBuffer', 'CurrentStackLocation'])
 
         simgr = self.project.factory.simgr(state)
 
@@ -241,37 +244,35 @@ class WDMDriverAnalysis(angr.Project):
             constraint_states = get_constraint_states(case_state)
 
             try:
-                if_state = next(constraint_states)
-                else_state = next(constraint_states)
+                sat_state = next(constraint_states)
+                unsat_state = next(constraint_states)
             except:
                 ioctl_interface.append({'code': hex(ioctl_code), 'constraints': []})
                 continue
 
-            else_state.inspect.b('call', action=self.force_skip_call)
-
-            simgr = self.project.factory.simgr(else_state)
+            self.set_mode('force_skip_call', unsat_state)
+            simgr = self.project.factory.simgr(unsat_state)
             simgr.run(n=20)
 
             for state in simgr.deadended:
                 if (state.solver.eval(state.regs.rax) >> 24) != 0xc0:
-                    if_state, else_state = else_state, if_state
+                    sat_state, unsat_state = unsat_state, sat_state
                     break
 
-            def get_valid_state(if_valid, else_state):
-                simgr = self.project.factory.simgr(if_valid)
+            def get_satisfied_state(sat_state, unsat_state):
+                simgr = self.project.factory.simgr(sat_state)
 
                 for i in range(10):
                     simgr.step()
 
                 for states in list(simgr.stashes.values()):
                     for state in states:
-                        if else_state.addr not in state.history.bbl_addrs:
+                        if unsat_state.addr not in state.history.bbl_addrs:
                             return state
 
-            valid_state = get_valid_state(if_state, else_state)
-            
             constraints = []
-            for constraint in valid_state.history.jump_guards:
+            sat_state = get_satisfied_state(sat_state, unsat_state)
+            for constraint in sat_state.history.jump_guards:
                 if 'Buffer' in str(constraint):
                     constraints.append(constraint)
 
