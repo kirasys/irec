@@ -60,6 +60,7 @@ class WDMDriverAnalysis(angr.Project):
         """
 
         kwargs['auto_load_libs'] = kwargs.pop('auto_load_libs', False)
+        kwargs['support_selfmodifying_code'] = True
         #kwargs['use_sim_procedures'] = kwargs.pop('use_sim_procedures', False)
         
         self.driver_path = args[0]
@@ -189,6 +190,10 @@ class WDMDriverAnalysis(angr.Project):
 
         state.inspect.b('call', action=self.skip_function_by_arguments)
 
+    def force_skip_call(self, state):
+        state.mem[state.regs.rip].uint8_t = 0xc3
+        state.regs.rax = state.solver.BVS('ret', 64)
+
     def recovery_ioctl_interface(self):
         """
         Returns IOCTL interface of the given driver.
@@ -221,43 +226,54 @@ class WDMDriverAnalysis(angr.Project):
 
         ioctl_interface = []
         switch_states = state_finder.get_states()
-        for ioctl_code, switchstate in switch_states.items():
-            tmpstate = switchstate.copy()
-            tmpstate.solver.add(irp.fields['AssociatedIrp.SystemBuffer'] == 0)
-            tmpstate.solver.add(io_stack_location.fields['InputBufferLength'] == 0xffffffff)
-            tmpstate.solver.add(io_stack_location.fields['OutputBufferLength'] == 0xffffffff)
-    
-            def get_else_state(st):
+        for ioctl_code, case_state in switch_states.items():
+            def get_constraint_states(st):
                 simgr = self.project.factory.simgr(st)
 
                 for i in range(10):
                     simgr.step()
 
-                    for states in list(simgr.stashes.values()):
-                        for state in states:
-                            for constraint in state.history.jump_guards:
-                                if 'Buffer' in str(constraint):
-                                    return state
+                    for state in simgr.active:
+                        for constraint in state.history.jump_guards:
+                            if 'Buffer' in str(constraint):
+                                yield state
 
-            elsestate = get_else_state(tmpstate)
+            constraint_states = get_constraint_states(case_state)
 
-            def get_if_state(st, elsestate):
-                simgr = self.project.factory.simgr(st)
+            try:
+                if_state = next(constraint_states)
+                else_state = next(constraint_states)
+            except:
+                ioctl_interface.append({'code': hex(ioctl_code), 'constraints': []})
+                continue
+
+            else_state.inspect.b('call', action=self.force_skip_call)
+
+            simgr = self.project.factory.simgr(else_state)
+            simgr.run(n=20)
+
+            for state in simgr.deadended:
+                if (state.solver.eval(state.regs.rax) >> 24) != 0xc0:
+                    if_state, else_state = else_state, if_state
+                    break
+
+            def get_valid_state(if_valid, else_state):
+                simgr = self.project.factory.simgr(if_valid)
 
                 for i in range(10):
                     simgr.step()
 
                 for states in list(simgr.stashes.values()):
                     for state in states:
-                        if elsestate.addr not in state.history.bbl_addrs:
+                        if else_state.addr not in state.history.bbl_addrs:
                             return state
 
+            valid_state = get_valid_state(if_state, else_state)
+            
             constraints = []
-            if elsestate:
-                ifstate = get_if_state(switchstate, elsestate)
-                for constraint in ifstate.history.jump_guards:
-                    if 'Buffer' in str(constraint):
-                        constraints.append(constraint)
+            for constraint in valid_state.history.jump_guards:
+                if 'Buffer' in str(constraint):
+                    constraints.append(constraint)
 
             ioctl_interface.append({'code': hex(ioctl_code), 'constraints': constraints})
         
