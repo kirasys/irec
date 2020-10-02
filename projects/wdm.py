@@ -147,8 +147,9 @@ class WDMDriverAnalysis(angr.Project):
         Set a mode.
 
         - mode
-        :force_skip_call:   Force any functon to return.
-        :skip_call:         Skip certain functions according to arguments it use.
+        :force_skip_call:               Force any functon to return.
+        :skip_call:                     Skip certain functions according to arguments it use.
+        :symbolize_global_variables:    Set a Symbolic Value on every global variables.
         """
 
         if mode == 'force_skip_call':
