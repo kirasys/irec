@@ -41,7 +41,6 @@ if __name__ == '__main__':
 
         elapsed = boltons.timeutils.decimal_relative_time(start_time, datetime.datetime.utcnow())
         print("[*] completed in: {0:.1f} {1}".format(*elapsed))
-
     else:
         print("[!] '%s' is not a supported driver." % args.driver)
         sys.exit()

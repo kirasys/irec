@@ -76,6 +76,7 @@ class WDMDriverAnalysis(angr.Project):
         self.DispatchDeviceControl = 0
 
         self.mode = {}
+        self.global_variables = []
 
     def isWDM(self):
         """
@@ -143,7 +144,7 @@ class WDMDriverAnalysis(angr.Project):
 
     def set_mode(self, mode, state, off=False, allowed_arguments=[]):
         """
-        Set a mode to given state.
+        Set a mode.
 
         - mode
         :force_skip_call:   Force any functon to return.
@@ -197,6 +198,24 @@ class WDMDriverAnalysis(angr.Project):
             else:
                 state.inspect.remove_breakpoint('call', self.mode[mode])
 
+        elif mode == 'symbolize_global_variables':
+            self.global_variables = []
+
+            if not off:
+                def symbolize_global_variables(state):
+                    obj = self.project.loader.main_object
+                    mem_read_address = state.solver.eval(state.inspect.mem_read_address)
+                    section = obj.find_section_containing(mem_read_address)
+
+                    if mem_read_address not in self.global_variables and '.data' in str(section):
+                        self.global_variables.append(mem_read_address)
+                        setattr(state.mem[mem_read_address], 'uint64_t', state.solver.BVS('global_%x' % mem_read_address, 64))
+
+                self.mode[mode] = state.inspect.b('mem_read', condition=symbolize_global_variables)
+            else:
+                state.inspect.remove_breakpoint('mem_read', self.mode[mode])
+
+
     def recovery_ioctl_interface(self):
         """
         Returns IOCTL interface of the given driver.
@@ -208,9 +227,6 @@ class WDMDriverAnalysis(angr.Project):
 
         state = self.project.factory.call_state(self.DispatchDeviceControl, arg_driverobject, arg_irp)
         
-        # for medcored.sys (should be removed.)
-        #setattr(state.mem[0x10C5B8], 'uint64_t', state.solver.BVS('x', 64))
-
         if self.skip_call_mode:
             self.set_mode('skip_call', state, allowed_arguments=[arg_iostacklocation, 'IoControlCode', 'SystemBuffer', 'CurrentStackLocation'])
 
@@ -231,6 +247,7 @@ class WDMDriverAnalysis(angr.Project):
         switch_states = state_finder.get_states()
         for ioctl_code, case_state in switch_states.items():
             def get_constraint_states(st):
+                self.set_mode('symbolize_global_variables', st)
                 simgr = self.project.factory.simgr(st)
 
                 for i in range(10):
@@ -260,6 +277,7 @@ class WDMDriverAnalysis(angr.Project):
                     break
 
             def get_satisfied_state(sat_state, unsat_state):
+                self.set_mode('symbolize_global_variables', sat_state)
                 simgr = self.project.factory.simgr(sat_state)
 
                 for i in range(10):
@@ -274,6 +292,8 @@ class WDMDriverAnalysis(angr.Project):
             sat_state = get_satisfied_state(sat_state, unsat_state)
             for constraint in sat_state.history.jump_guards:
                 if 'Buffer' in str(constraint):
+                    constraints.append(constraint)
+                if 'global_' in str(constraint):
                     constraints.append(constraint)
 
             ioctl_interface.append({'code': hex(ioctl_code), 'constraints': constraints})
