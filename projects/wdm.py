@@ -84,7 +84,7 @@ class WDMDriverAnalysis(angr.Project):
         """
 
         return True if self.project.loader.find_symbol('IoCreateDevice') else False
-
+		
     def find_device_name(self):
         """
         Returns DeviceName of the given driver. It searchs "DosDevices" statically.
@@ -92,14 +92,23 @@ class WDMDriverAnalysis(angr.Project):
 
         DOS_DEVICES = "\\DosDevices\\".encode('utf-16le')
         data = open(self.driver_path, 'rb').read()
+        device_name_list = []
+        cursor = 0
 
-        cursor = data.find(DOS_DEVICES)
-        terminate = data.find(b'\x00\x00', cursor)
-
-        if ( terminate - cursor) %2:
-            terminate +=1
-        match = data[cursor:terminate].decode('utf-16le')
-        return match
+        while cursor < len(data):
+            cursor = data.find(DOS_DEVICES, cursor)
+            if cursor == -1:
+                break
+                
+            terminate = data.find(b'\x00\x00', cursor)
+            if ( terminate - cursor) % 2:
+                terminate += 1
+                
+            match = data[cursor:terminate].decode('utf-16le')
+            device_name_list.append(match)
+            cursor += len(DOS_DEVICES)
+            
+        return set(device_name_list)
 
     def set_major_functions(self, state):
         """
@@ -245,6 +254,7 @@ class WDMDriverAnalysis(angr.Project):
         simgr.run()
 
         ioctl_interface = []
+
         switch_states = state_finder.get_states()
         for ioctl_code, case_state in switch_states.items():
             def get_constraint_states(st):
@@ -291,6 +301,7 @@ class WDMDriverAnalysis(angr.Project):
 
             constraints = []
             sat_state = get_satisfied_state(sat_state, unsat_state)
+
             for constraint in sat_state.history.jump_guards:
                 if 'Buffer' in str(constraint):
                     constraints.append(constraint)
