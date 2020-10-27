@@ -26,6 +26,26 @@ def ast_repr(node):
         raise TypeError('node must be an instance of claripy.ast.Base not: ' + repr(node))
     return re.sub(r'([^a-zA-Z][a-zA-Z]+)_\d+_\d+([^\d]|$)', r'\1\2', node.__repr__(inner=True))
 
+def speculate_bvs_range(state, bvs):
+    inf = 0xffffffff
+    minv = state.solver.min(bvs)
+    maxv = state.solver.max(bvs)
+    
+    if maxv == inf:  # bvs >= x or no constraints (range mangling)
+        yield '%d-inf' % minv
+        return
+    
+    i = start = minv
+    while i <= maxv + 1: # bvs has range.
+        if not state.solver.satisfiable([bvs == i]):
+            yield '%d-%d' % (start, i - 1)
+
+            # find next start
+            while not state.solver.satisfiable([bvs == i]) and i <= maxv + 1:
+                i += 1
+            start = i
+        i += 1
+
 class WDMDriverFactory(angr.factory.AngrObjectFactory):
     """
     This class provides state presets of window.
@@ -214,8 +234,7 @@ class WDMDriverAnalysis(angr.Project):
 
                 self.mode[mode] = state.inspect.b('mem_read', condition=symbolize_global_variables)
             else:
-                state.inspect.remove_breakpoint('mem_read', self.mode[mode])
-
+                state.inspect.remove_breakpoint('mem_read', self.mode[mode])        
 
     def recovery_ioctl_interface(self):
         """
@@ -289,14 +308,12 @@ class WDMDriverAnalysis(angr.Project):
                         if unsat_state.addr not in state.history.bbl_addrs:
                             return state
 
-            constraints = []
             sat_state = get_satisfied_state(sat_state, unsat_state)
-            for constraint in sat_state.history.jump_guards:
-                if 'Buffer' in str(constraint):
-                    constraints.append(constraint)
-                if 'global_' in str(constraint):
-                    constraints.append(constraint)
-
-            ioctl_interface.append({'code': hex(ioctl_code), 'constraints': constraints})
+            ioctl_interface.append({'IoControlCode': hex(ioctl_code), 
+                                    'InputBufferLength': list(speculate_bvs_range(sat_state, 
+                                                                io_stack_location.fields['InputBufferLength'])),
+                                    'OutputBufferLength': list(speculate_bvs_range(sat_state,
+                                                                io_stack_location.fields['OutputBufferLength'])
+                                    )})
         
         return ioctl_interface
