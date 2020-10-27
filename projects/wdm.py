@@ -284,7 +284,8 @@ class WDMDriverAnalysis(angr.Project):
                 sat_state = next(constraint_states)
                 unsat_state = next(constraint_states)
             except:
-                ioctl_interface.append({'code': hex(ioctl_code), 'constraints': []})
+                ioctl_interface.append({'IoControlCode': hex(ioctl_code),
+                                        'InputBufferLength': ['0-inf'], 'OutputBufferLength': ['0-inf']})
                 continue
 
             self.set_mode('force_skip_call', unsat_state)
