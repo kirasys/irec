@@ -21,17 +21,12 @@ arg_iostacklocation = 0xdead4000
 
 import ipdb
 
-def ast_repr(node):
-    if not isinstance(node, claripy.ast.Base):
-        raise TypeError('node must be an instance of claripy.ast.Base not: ' + repr(node))
-    return re.sub(r'([^a-zA-Z][a-zA-Z]+)_\d+_\d+([^\d]|$)', r'\1\2', node.__repr__(inner=True))
-
 def speculate_bvs_range(state, bvs):
     inf = 0xffffffff
     minv = state.solver.min(bvs)
     maxv = state.solver.max(bvs)
     
-    if maxv == inf:  # bvs >= x or no constraints (range mangling)
+    if maxv == inf:  # when the max range is infinite (mangling)
         yield '%d-inf' % minv
         return
     
@@ -113,13 +108,23 @@ class WDMDriverAnalysis(angr.Project):
         DOS_DEVICES = "\\DosDevices\\".encode('utf-16le')
         data = open(self.driver_path, 'rb').read()
 
-        cursor = data.find(DOS_DEVICES)
-        terminate = data.find(b'\x00\x00', cursor)
+        device_name_list = []
+        cursor = 0
 
-        if ( terminate - cursor) %2:
-            terminate +=1
-        match = data[cursor:terminate].decode('utf-16le')
-        return match
+        while cursor < len(data):
+            cursor = data.find(DOS_DEVICES, cursor)
+            if cursor == -1:
+                break
+
+            terminate = data.find(b'\x00\x00', cursor)
+            if ( terminate - cursor) % 2:
+                terminate += 1
+
+            match = data[cursor:terminate].decode('utf-16le')
+            device_name_list.append(match)
+            cursor += len(DOS_DEVICES)
+
+        return set(device_name_list)
 
     def set_major_functions(self, state):
         """
