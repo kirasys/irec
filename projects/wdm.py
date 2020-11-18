@@ -290,7 +290,7 @@ class WDMDriverAnalysis(angr.Project):
                 unsat_state = next(constraint_states)
             except:
                 ioctl_interface.append({'IoControlCode': hex(ioctl_code),
-                                        'InputBufferLength': ['0-inf'], 'OutputBufferLength': ['0-inf']})
+                                        'InBufferLength': ['0-inf'], 'OutBufferLength': ['0-inf']})
                 continue
 
             self.set_mode('force_skip_call', unsat_state)
@@ -316,9 +316,9 @@ class WDMDriverAnalysis(angr.Project):
 
             sat_state = get_satisfied_state(sat_state, unsat_state)
             ioctl_interface.append({'IoControlCode': hex(ioctl_code), 
-                                    'InputBufferLength': list(speculate_bvs_range(sat_state, 
+                                    'InBufferLength': list(speculate_bvs_range(sat_state, 
                                                                 io_stack_location.fields['InputBufferLength'])),
-                                    'OutputBufferLength': list(speculate_bvs_range(sat_state,
+                                    'OutBufferLength': list(speculate_bvs_range(sat_state,
                                                                 io_stack_location.fields['OutputBufferLength'])
                                     )})
         
