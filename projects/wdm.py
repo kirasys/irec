@@ -293,20 +293,25 @@ class WDMDriverAnalysis(angr.Project):
                                         'InBufferLength': ['0-inf'], 'OutBufferLength': ['0-inf']})
                 continue
 
+            # Unsat check
             self.set_mode('force_skip_call', unsat_state)
             simgr = self.project.factory.simgr(unsat_state)
             simgr.run(n=20)
 
+            errorCnt = 0
             for state in simgr.deadended:
-                if (state.solver.eval(state.regs.rax) >> 24) != 0xc0:
-                    sat_state, unsat_state = unsat_state, sat_state
-                    break
+                if (state.solver.eval(state.regs.rax) >> 24) == 0xc0:
+                    errorCnt += 1
+            
+            if len(simgr.deadended) != errorCnt:
+                sat_state, unsat_state = unsat_state, sat_state
 
+            # Get satisfied constraints.
             def get_satisfied_state(sat_state, unsat_state):
                 self.set_mode('symbolize_global_variables', sat_state)
                 simgr = self.project.factory.simgr(sat_state)
 
-                for i in range(10):
+                for _ in range(10):
                     simgr.step()
 
                 for states in list(simgr.stashes.values()):
