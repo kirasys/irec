@@ -278,7 +278,6 @@ class WDMDriverAnalysis(angr.Project):
                 for constraint in st.history.jump_guards:
                     if 'Buffer' in str(constraint):
                         preconstraints.append(str(constraint))
-                print(preconstraints)
 
                 simgr = self.project.factory.simgr(st)
 
