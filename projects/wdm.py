@@ -273,6 +273,13 @@ class WDMDriverAnalysis(angr.Project):
         for ioctl_code, case_state in switch_states.items():
             def get_constraint_states(st):
                 self.set_mode('symbolize_global_variables', st)
+
+                preconstraints = []
+                for constraint in st.history.jump_guards:
+                    if 'Buffer' in str(constraint):
+                        preconstraints.append(str(constraint))
+                print(preconstraints)
+
                 simgr = self.project.factory.simgr(st)
 
                 for i in range(10):
@@ -280,7 +287,8 @@ class WDMDriverAnalysis(angr.Project):
 
                     for state in simgr.active:
                         for constraint in state.history.jump_guards:
-                            if 'Buffer' in str(constraint):
+                            if 'Buffer' in str(constraint) and \
+                                str(constraint) not in preconstraints:
                                 yield state
 
             constraint_states = get_constraint_states(case_state)
@@ -320,6 +328,9 @@ class WDMDriverAnalysis(angr.Project):
                             return state
 
             sat_state = get_satisfied_state(sat_state, unsat_state)
+            if not sat_state:
+                sat_state = case_state
+
             ioctl_interface.append({'IoControlCode': hex(ioctl_code), 
                                     'InBufferLength': list(speculate_bvs_range(sat_state, 
                                                                 io_stack_location.fields['InputBufferLength'])),
