@@ -286,7 +286,7 @@ class WDMDriverAnalysis(angr.Project):
 
                     for state in simgr.active:
                         for constraint in state.history.jump_guards:
-                            if 'Buffer' in str(constraint) and \
+                            if 'BufferLength' in str(constraint) and \
                                 str(constraint) not in preconstraints:
                                 yield state
 
@@ -300,17 +300,23 @@ class WDMDriverAnalysis(angr.Project):
                                         'InBufferLength': ['0-inf'], 'OutBufferLength': ['0-inf']})
                 continue
 
-            # Unsat check
+            # Determine unsat state.
+            self.set_mode('force_skip_call', sat_state)
             self.set_mode('force_skip_call', unsat_state)
-            simgr = self.project.factory.simgr(unsat_state)
-            simgr.run(n=20)
+            simgr_sat = self.project.factory.simgr(sat_state)
+            simgr_unsat = self.project.factory.simgr(unsat_state)
 
-            errorCnt = 0
-            for state in simgr.deadended:
-                if (state.solver.eval(state.regs.rax) >> 24) == 0xc0:
-                    errorCnt += 1
-            
-            if len(simgr.deadended) != errorCnt:
+            def determine_unsat():
+                for _ in range(30):
+                    simgr_sat.step()
+                    simgr_unsat.step()
+                    
+                    if len(simgr_sat.active) == 0:
+                        yield False
+                    elif len(simgr_unsat.active) == 0:
+                        yield True
+
+            if not next(determine_unsat()):
                 sat_state, unsat_state = unsat_state, sat_state
 
             # Get satisfied constraints.
