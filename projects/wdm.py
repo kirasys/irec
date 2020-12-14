@@ -167,7 +167,7 @@ class WDMDriverAnalysis(angr.Project):
 
         return self.DispatchDeviceControl
 
-    def set_mode(self, mode, state, off=False, allowed_arguments=[]):
+    def set_mode(self, mode, state, off=False, allowed_arguments=None):
         """
         Set a mode.
 
@@ -176,6 +176,8 @@ class WDMDriverAnalysis(angr.Project):
         :skip_call:                     Skip certain functions according to arguments it use.
         :symbolize_global_variables:    Set a Symbolic Value on every global variables.
         """
+        if allowed_arguments is None:
+            allowed_arguments = []
 
         if mode == 'force_skip_call':
             if not off:
@@ -251,17 +253,13 @@ class WDMDriverAnalysis(angr.Project):
         """
 
         state = self.project.factory.call_state(self.DispatchDeviceControl, arg_driverobject, arg_irp)
-        
-        if self.skip_call_mode:
-            self.set_mode('skip_call', state, allowed_arguments=[arg_iostacklocation, 'IoControlCode', 'SystemBuffer', 'CurrentStackLocation'])
-
+        self.set_mode('symbolize_global_variables', state)
         simgr = self.project.factory.simgr(state)
 
         io_stack_location = structures.IO_STACK_LOCATION(state, arg_iostacklocation)
         irp = structures.IRP(state, arg_irp)
 
         state.solver.add(irp.fields['Tail.Overlay.CurrentStackLocation'] == io_stack_location.address)
-        state.solver.add(irp.fields['IoStatus.Status'] == 0)
         state.solver.add(io_stack_location.fields['MajorFunction'] == 14)
 
         state_finder = explore_technique.SwitchStateFinder(io_stack_location.fields['IoControlCode'])
@@ -290,6 +288,7 @@ class WDMDriverAnalysis(angr.Project):
                                 str(constraint) not in preconstraints:
                                 yield state
 
+            # Inspect what constraints are used.
             constraint_states = get_constraint_states(case_state)
 
             try:
@@ -300,9 +299,11 @@ class WDMDriverAnalysis(angr.Project):
                                         'InBufferLength': ['0-inf'], 'OutBufferLength': ['0-inf']})
                 continue
 
-            # Determine unsat state.
+            # Determine which constraints are valid.
             self.set_mode('force_skip_call', sat_state)
             self.set_mode('force_skip_call', unsat_state)
+            self.set_mode('symbolize_global_variables', sat_state)
+            self.set_mode('symbolize_global_variables', unsat_state)
             simgr_sat = self.project.factory.simgr(sat_state)
             simgr_unsat = self.project.factory.simgr(unsat_state)
 
@@ -319,9 +320,8 @@ class WDMDriverAnalysis(angr.Project):
             if not next(determine_unsat()):
                 sat_state, unsat_state = unsat_state, sat_state
 
-            # Get satisfied constraints.
-            def get_satisfied_state(sat_state, unsat_state):
-                self.set_mode('symbolize_global_variables', sat_state)
+            # Get valid constraints.
+            def get_valid_constraints(sat_state, unsat_state):
                 simgr = self.project.factory.simgr(sat_state)
 
                 for _ in range(10):
@@ -332,7 +332,7 @@ class WDMDriverAnalysis(angr.Project):
                         if unsat_state.addr not in state.history.bbl_addrs:
                             return state
 
-            sat_state = get_satisfied_state(sat_state, unsat_state)
+            sat_state = get_valid_constraints(sat_state, unsat_state)
             if not sat_state:
                 sat_state = case_state
 
