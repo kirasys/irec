@@ -3,13 +3,13 @@ A cross platform framework to recover driver's communication interface. It aims 
 
 ## Project structure
 ```text
-MadCore
+IREC
 ├── test-drivers                          # Test drivers to verify that madcore is working.
 ├── projects                              # Driver analysis projects
 │   ├── symbolic                          # Techniques using symbolic execution.
 │   ├── static                            # Techniques using static analysis techniques
 │   └──wdm.py                             # WDM driver analysis framework
-└── madcore.py                            # Main module
+└── irec.py                               # Main module
 ```
 
 ## Requirements

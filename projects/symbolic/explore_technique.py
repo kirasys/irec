@@ -1,9 +1,11 @@
 import angr
 
-#IOCTL_CODE_MODE = 'iocode'
 CONSTRAINT_MODE = 'constraints'
 
 class SwitchStateFinder(angr.ExplorationTechnique):
+    """
+    An exploration technique to get all states of the switch-case statement.
+    """
     def __init__(self, case):
         super(SwitchStateFinder, self).__init__()
         self._case = case

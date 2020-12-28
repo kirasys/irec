@@ -1,20 +1,22 @@
 import r2pipe
 
-class FunctionAnalysis:
+class StaticAnalysis:
     """
-    This class provides interface which analyze function's static information.
+    This class provides a static analysis interface.
     """
 
     def __init__(self, path):
         self.r = r2pipe.open(path)
 
-    def prototype(self, func_addr):
+    def get_function_parameters(self, addr):
         """
+        Return a list of function's parameters.
+
         - args
-        :func_addr: Address of target function to analyze prototype.
+        :addr: An address of the function.
         """
 
-        self.r.cmd('s 0x%x' % func_addr)
+        self.r.cmd('s 0x%x' % addr)
         self.r.cmd('af')
         result = reversed(self.r.cmd('afv').strip().split('\n'))
 
@@ -26,5 +28,3 @@ class FunctionAnalysis:
                 break
 
         return prototypes
-
-
