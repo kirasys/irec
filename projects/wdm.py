@@ -19,8 +19,6 @@ ARG_REGISTRYPATH = 0xdead2000
 ARG_IRP = 0xdead3000
 ARG_IOSTACKLOCATION = 0xdead4000
 
-import ipdb
-
 def speculate_bvs_range(state, bvs):
     """
     Speculate a range of the symbolic variable.

@@ -1,7 +1,8 @@
 #  structures.py
 #
 #  Copyright 2018 Spencer McIntyre <zeroSteiner@gmail.com>
-#
+#  Copyright 2020 Namjun Jo <kirasys@theori.io>
+# 
 #  Redistribution and use in source and binary forms, with or without
 #  modification, are permitted provided that the following conditions are
 #  met:
