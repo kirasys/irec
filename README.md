@@ -20,18 +20,14 @@ IREC
 We recommend python3.8 virtual environment to use IREC.
 
 ```shell
-# install virtualenv
+# make virtual environment
 $ pip install virtualenv
 $ pip install virtualenvwrapper
 
-# make virtual environment
 $ virtualenv $YOUR_NAME
 $ source $YOUR_NAME/bin/activate
 
-# use symbolic-analysis
-$ pip install angr boltons argparse ipdb
-
-# use static-analysis
+# requirements
 $ apt install radare2
-$ pip install r2pipe
+$ pip install angr boltons argparse ipdb r2pipe
 ```
